@@ -13,8 +13,8 @@ from toolkit.nlp import NLPTrainingConfig, TextDataset
 from toolkit.training import Trainer, initialize
 from transformers import CONFIG_MAPPING, AutoConfig, AutoModelForCausalLM, AutoTokenizer, GenerationConfig, PreTrainedTokenizer
 
-from utils.evaluators import Evaluator1
-from utils.load_data_fn import load_data_fn
+from utils.evaluators import Evaluator4Generate, Evaluator4Classify
+from utils.load_data_fn import load_data_fn4generate, load_data_fn4classify
 
 IGNORE_INDEX = -100
 DEFAULT_PAD_TOKEN = "[PAD]"
@@ -58,17 +58,17 @@ def load_dataset(tokenizer: PreTrainedTokenizer) -> tuple:
         tokenizer,
         split=Split.TRAINING,
         configs=config,
-        load_data_fn=load_data_fn,
+        load_data_fn=load_data_fn4generate if config.task_type == "generate" else load_data_fn4classify,
         dataset=config.dataset_name,
         text_type=config.text_type,
         model_name=config.model_name,
     )
     val_dataset = TextDataset.from_file(
-        config.val_file_path if "for_refiner" not in config.model_name else config.train_file_path,
+        config.val_file_path,
         tokenizer,
         split=Split.VALIDATION,
         configs=config,
-        load_data_fn=load_data_fn,
+        load_data_fn=load_data_fn4generate if config.task_type == "generate" else load_data_fn4classify,
         dataset=config.dataset_name,
         text_type=config.text_type,
         model_name=config.model_name,
@@ -78,7 +78,7 @@ def load_dataset(tokenizer: PreTrainedTokenizer) -> tuple:
         tokenizer,
         split=Split.TEST,
         configs=config,
-        load_data_fn=load_data_fn,
+        load_data_fn=load_data_fn4generate if config.task_type == "generate" else load_data_fn4classify,
         # train_config=config,
         dataset=config.dataset_name,
         text_type=config.text_type,
@@ -92,19 +92,19 @@ def load_dataset(tokenizer: PreTrainedTokenizer) -> tuple:
         # val_dataset.batch_model_input = val_dataset.batch_model_input[:config.train_batch_size]
         print("train dataset length:", len(train_dataset))
 
-    print(f"-------------------------------TRAINING-------------------------------")
-    print(f"\n### input ###\n{train_dataset.texts_input[0][0]}")
-    print(f"\n### label ###\n{train_dataset.texts_label[0][0]}\n")
+    # print(f"-------------------------------TRAINING-------------------------------")
+    # print(f"\n### input ###\n{train_dataset.texts_input[0][0]}")
+    # print(f"\n### label ###\n{train_dataset.texts_label[0][0]}\n")
 
-    if val_dataset is not None:
-        print(f"-------------------------------VALIDATION-------------------------------")
-        print(f"\n### input ###\n{val_dataset.texts_input[0][0]}")
-        print(f"\n### label ###\n{val_dataset.texts_label[0]}\n")
+    # if val_dataset is not None:
+    #     print(f"-------------------------------VALIDATION-------------------------------")
+    #     print(f"\n### input ###\n{val_dataset.texts_input[0][0]}")
+    #     print(f"\n### label ###\n{val_dataset.texts_label[0]}\n")
 
-    if test_dataset is not None:
-        print(f"-------------------------------TEST-------------------------------")
-        print(f"\n### input ###\n{test_dataset.texts_input[0][0]}")
-        print(f"\n### label ###\n{test_dataset.texts_label[0]}\n")
+    # if test_dataset is not None:
+    #     print(f"-------------------------------TEST-------------------------------")
+    #     print(f"\n### input ###\n{test_dataset.texts_input[0][0]}")
+    #     print(f"\n### label ###\n{test_dataset.texts_label[0]}\n")
 
     return train_dataset, val_dataset, test_dataset
 
@@ -156,28 +156,24 @@ def load_model(tokenizer):
         if config.parallel_mode != "deepspeed":
             torch_dtype = config.torch_dtype if config.torch_dtype in ["auto", None] else getattr(torch, config.torch_dtype)
             model = AutoModelForCausalLM.from_pretrained(
-                config.model_dir,
-                config=model_config,
-                cache_dir=config.cache_dir,
-                torch_dtype=torch_dtype,
-                low_cpu_mem_usage=False,
-                trust_remote_code=True,
+                config.model_dir, config=model_config, torch_dtype=torch_dtype, low_cpu_mem_usage=False, trust_remote_code=True
             )
         else:
             logger.debug(f"local_rank {local_rank}: Construct `from_pretrained` kwargs ...")
             model = None
             torch_dtype = config.torch_dtype if config.torch_dtype in ["auto", None] else getattr(torch, config.torch_dtype)
-            from_pretrained_kwargs = dict(cache_dir=config.cache_dir, torch_dtype=torch_dtype, low_cpu_mem_usage=False, trust_remote_code=True)
+            from_pretrained_kwargs = dict(torch_dtype=torch_dtype, low_cpu_mem_usage=False, trust_remote_code=True)
     else:
         exit(1)
         model = AutoModelForCausalLM.from_config(config)
         n_params = sum({p.data_ptr(): p.numel() for p in model.parameters()}.values())
         logger.debug(f"Training new model from scratch - Total size={n_params/2**20:.2f}M params")
-    if model_config.vocab_size != len(tokenizer):
-        embedding_size = model.get_input_embeddings().weight.shape[0]
-        if len(tokenizer) != embedding_size:
-            logger.debug("resize the embedding size by the size of the tokenizer")
-            model.resize_token_embeddings(len(tokenizer))
+    # todo 用deepspeed时， model为None
+    # if model_config.vocab_size != len(tokenizer):
+    #     embedding_size = model.get_input_embeddings().weight.shape[0]
+    #     if len(tokenizer) != embedding_size:
+    #         logger.debug("resize the embedding size by the size of the tokenizer")
+    #         model.resize_token_embeddings(len(tokenizer))
 
     end = time.time()
     logger.debug(f"local_rank {local_rank}: Loading model takes {end - start:.2f} sec.")
@@ -214,7 +210,7 @@ def main() -> None:
         dataset_val=val_dataset,
         dataset_test=test_dataset,
         tokenizer=tokenizer,
-        extral_evaluators=[Evaluator1],
+        extral_evaluators=[Evaluator4Generate] if config.task_type == "generate" else [Evaluator4Classify],
         optimizer=config.opt_type,
         scheduler=config.sch_type if config.parallel_mode is not None else "linearWarmupDecay",
         extral_args_evaluation={"generation_config": hf_gen_config},
