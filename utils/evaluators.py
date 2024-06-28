@@ -79,7 +79,9 @@ class Evaluator4Classify(Evaluator):
                 generate_result_path.parent.mkdir(parents=True, exist_ok=True)
                 with open(generate_result_path, "w") as f:
                     json.dump(dict_list, f, indent=2, ensure_ascii=False)
-            all_preds = (np.argmax(all_logits, axis=1, keepdims=True) >= 50).astype(int)
+            all_labels = np.array(all_labels)
+            all_logits = np.array(all_logits)
+            all_preds = (all_logits > 0).astype(int)
             acc = accuracy_score(all_labels, all_preds)
             f1 = f1_score(all_labels, all_preds, average="binary")
             metric = MetricDict({"accuracy": acc * 100, "F1-score": f1 * 100, "loss": mean_loss})

@@ -3,43 +3,44 @@
 # nohup ./script_train_cla.sh > /dev/null 2>&1 &
 # tmux new-session -d -s train_task 'bash ./script_train_cla.sh > /dev/null 2>&1'
 
-PATH="/home/qwe/miniconda3/envs/jjvv/bin:$PATH"
 
 CUDA_VISIBLE_DEVICES=1
 
 # 模型与任务
 dataset_name=fool
-model_type="deepseek-coder-1.3b-instruct"
-model_dir="/home/qwe/test/pretrained_model/$model_type"
-if [[ "$model_type" == *"deepseek"* ]]; then
-    model_type="deepseek-ai/$model_type"
+model_type="bert-base-chinese"
+model_dir="../../pretrained/$model_type"
+if [[ "$model_type" == *"bert-base-chinese"* ]]; then
+    model_type="google/$model_type"
 else
-    model_type="meta-llama/$model_type"
+    exit 1
 fi
 echo $model_type
-model_structure=decoder
+model_structure="encoder"
 task_type=classify
 
 
 # 训练参数
+parallel_mode="deepspeed"
+parallel_mode=None
 model_name="baseline"
 text_type=ORI
 epochs=3
-train_batch_size=32
+train_batch_size=16
 infer_batch_size=16
-max_length=2048
+max_length=512
 gradient_accumulation_steps=1
 opt_lrs=("2e-5")
 opt_weight_decay=0.01
 sch_type=WarmupDecayLR
 sch_warmup_ratio_steps=0.1
-metric='rougeL'
-activation_checkpointing=True
+metric='accuracy'
+activation_checkpointing=False
 
-if [ "$model_type" = "deepseek-ai/deepseek-coder-1.3b-instruct" ]; then
-    fp16=False
-    bf16=True
-    torch_dtype=bfloat16
+if [ "$model_type" = "google/bert-base-chinese" ]; then
+    fp16=True
+    bf16=False
+    torch_dtype=auto
     deepspeed_config_file=./configs/ds_zero2.hjson
     hf_gen_config_file="./configs/generate_config.json"
     gradient_accumulation_steps=1
@@ -70,7 +71,7 @@ do
     torchrun --nnodes 1 --nproc_per_node $nproc_per_node --master-port 29503 train.py \
         --model_structure $model_structure \
         --task_type $task_type \
-        --parallel_mode "deepspeed" \
+        --parallel_mode $parallel_mode \
         --model_name $model_name \
         --model_type $model_type \
         --dataset_name $dataset_name \
@@ -109,5 +110,5 @@ do
         --padding_to_max_length False \
         --text_type $text_type \
         --activation_checkpointing $activation_checkpointing \
-        > training_instruct.log 2>&1
+        > training.log 2>&1
 done

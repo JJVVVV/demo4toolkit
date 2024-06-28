@@ -109,5 +109,5 @@ do
         --padding_to_max_length False \
         --text_type $text_type \
         --activation_checkpointing $activation_checkpointing \
-        > training_instruct.log 2>&1
+        > training.log 2>&1
 done

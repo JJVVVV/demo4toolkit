@@ -13,8 +13,9 @@ from toolkit.nlp import NLPTrainingConfig, TextDataset
 from toolkit.training import Trainer, initialize
 from transformers import CONFIG_MAPPING, AutoConfig, AutoModelForCausalLM, AutoTokenizer, GenerationConfig, PreTrainedTokenizer
 
-from utils.evaluators import Evaluator4Generate, Evaluator4Classify
-from utils.load_data_fn import load_data_fn4generate, load_data_fn4classify
+from models.MatchModel_binary_classification import BertModel_binary_classify
+from utils.evaluators import Evaluator4Classify, Evaluator4Generate
+from utils.load_data_fn import load_data_fn4classify, load_data_fn4generate
 
 IGNORE_INDEX = -100
 DEFAULT_PAD_TOKEN = "[PAD]"
@@ -36,7 +37,7 @@ def load_tokenizer() -> PreTrainedTokenizer:
         )
 
     # * resize embedding
-    if tokenizer.pad_token is None:
+    if tokenizer.pad_token is None and config.task_type == "generate":
         logger.debug(f"Adding pad token {DEFAULT_PAD_TOKEN}")
         tokenizer.add_special_tokens(dict(pad_token=DEFAULT_PAD_TOKEN))
     logger.debug(f"len(tokenizer):{len(tokenizer)}")
@@ -133,7 +134,10 @@ def load_model(tokenizer):
     start = time.time()
 
     # * define model class
-    model_class = AutoModelForCausalLM
+    if config.task_type == "generate":
+        model_class = AutoModelForCausalLM
+    else:
+        model_class = BertModel_binary_classify
 
     # * define from_pretrained kwargs
     from_pretrained_kwargs = None
@@ -155,9 +159,14 @@ def load_model(tokenizer):
     if config.model_dir:
         if config.parallel_mode != "deepspeed":
             torch_dtype = config.torch_dtype if config.torch_dtype in ["auto", None] else getattr(torch, config.torch_dtype)
-            model = AutoModelForCausalLM.from_pretrained(
-                config.model_dir, config=model_config, torch_dtype=torch_dtype, low_cpu_mem_usage=False, trust_remote_code=True
-            )
+            if config.task_type == "generate":
+                model = AutoModelForCausalLM.from_pretrained(
+                    config.model_dir, config=model_config, torch_dtype=torch_dtype, low_cpu_mem_usage=False, trust_remote_code=True
+                )
+            else:
+                model = BertModel_binary_classify.from_pretrained(
+                    config.model_dir, config=model_config, torch_dtype=torch_dtype, low_cpu_mem_usage=False, trust_remote_code=True
+                )
         else:
             logger.debug(f"local_rank {local_rank}: Construct `from_pretrained` kwargs ...")
             model = None
@@ -195,7 +204,10 @@ def main() -> None:
     model, model_config, model_class, from_pretrained_kwargs = load_model(tokenizer)
 
     # *load generation config
-    hf_gen_config = load_hf_generation_config(model, config)
+    if config.task_type == "generate":
+        hf_gen_config = load_hf_generation_config(model, config)
+    else:
+        hf_gen_config = None
 
     # * Train
     trainer = Trainer(
@@ -213,7 +225,7 @@ def main() -> None:
         extral_evaluators=[Evaluator4Generate] if config.task_type == "generate" else [Evaluator4Classify],
         optimizer=config.opt_type,
         scheduler=config.sch_type if config.parallel_mode is not None else "linearWarmupDecay",
-        extral_args_evaluation={"generation_config": hf_gen_config},
+        extral_args_evaluation={"generation_config": hf_gen_config} if config.task_type == "generate" else None,
     )
     trainer.train()
 
