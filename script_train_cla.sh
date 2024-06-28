@@ -1,14 +1,14 @@
 #!/bin/bash
 
-# nohup ./script_train.sh > /dev/null 2>&1 &
-# tmux new-session -d -s train_task 'bash ./script_train.sh > /dev/null 2>&1'
+# nohup ./script_train_cla.sh > /dev/null 2>&1 &
+# tmux new-session -d -s train_task 'bash ./script_train_cla.sh > /dev/null 2>&1'
 
 PATH="/home/qwe/miniconda3/envs/jjvv/bin:$PATH"
 
 CUDA_VISIBLE_DEVICES=1
 
 # 模型与任务
-dataset_name=spider
+dataset_name=fool
 model_type="deepseek-coder-1.3b-instruct"
 model_dir="/home/qwe/test/pretrained_model/$model_type"
 if [[ "$model_type" == *"deepseek"* ]]; then
@@ -18,7 +18,7 @@ else
 fi
 echo $model_type
 model_structure=decoder
-task_type=generate
+task_type=classify
 
 
 # 训练参数
@@ -33,7 +33,7 @@ opt_lrs=("2e-5")
 opt_weight_decay=0.01
 sch_type=WarmupDecayLR
 sch_warmup_ratio_steps=0.1
-metric='accuracy'
+metric='rougeL'
 activation_checkpointing=True
 
 if [ "$model_type" = "deepseek-ai/deepseek-coder-1.3b-instruct" ]; then
@@ -41,6 +41,7 @@ if [ "$model_type" = "deepseek-ai/deepseek-coder-1.3b-instruct" ]; then
     bf16=True
     torch_dtype=bfloat16
     deepspeed_config_file=./configs/ds_zero2.hjson
+    hf_gen_config_file="./configs/generate_config.json"
     gradient_accumulation_steps=1
 elif [ "$model_type" = "XXX" ]; then
     exit 1
@@ -49,8 +50,8 @@ fi
 
 # 数据集文件
 if [ "$text_type" = "ORI" ]; then
-    train_file_path="data/$dataset_name/train"
-    val_file_path="data/$dataset_name/dev.json"
+    train_file_path="data/$dataset_name/train/train_classify.json"
+    val_file_path="data/$dataset_name/dev/dev_classify.json"
     test_file_path=None
 elif [ "$text_type" = "XXX" ]; then
     exit 1
@@ -98,7 +99,7 @@ do
         --padding_side "left" \
         --save_dir None \
         --cut_input_from_output True \
-        --hf_gen_config_file "./configs/generate_config.json" \
+        --hf_gen_config_file $hf_gen_config_file \
         --use_deepspeed_ckpt False \
         --save_ckpts False \
         --save_all_ckpts False \
