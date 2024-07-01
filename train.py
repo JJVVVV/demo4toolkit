@@ -35,12 +35,6 @@ def load_tokenizer() -> PreTrainedTokenizer:
             "You are instantiating a new tokenizer from scratch. This is not supported by this script."
             "You can do it from another script, save it, and load it from here, using --tokenizer_name."
         )
-
-    # * resize embedding
-    if tokenizer.pad_token is None and config.task_type == "generate":
-        logger.debug(f"Adding pad token {DEFAULT_PAD_TOKEN}")
-        tokenizer.add_special_tokens(dict(pad_token=DEFAULT_PAD_TOKEN))
-    logger.debug(f"len(tokenizer):{len(tokenizer)}")
     if dist.is_initialized():
         dist.barrier()
     return tokenizer
@@ -155,9 +149,11 @@ def load_model(tokenizer):
             model_config.update_from_string(config.config_overrides)
             logger.info(f"New config: {config}")
 
+    model_config.pad_token_id = tokenizer.pad_token_id
+
     # * Load model
     if config.model_dir:
-        if config.parallel_mode != "deepspeed":
+        if config.parallel_mode != "deepspeed" or tokenizer.pad_token is None:
             torch_dtype = config.torch_dtype if config.torch_dtype in ["auto", None] else getattr(torch, config.torch_dtype)
             if config.task_type == "generate":
                 model = AutoModelForCausalLM.from_pretrained(
@@ -167,6 +163,16 @@ def load_model(tokenizer):
                 model = BertModel_binary_classify.from_pretrained(
                     config.model_dir, config=model_config, torch_dtype=torch_dtype, low_cpu_mem_usage=False, trust_remote_code=True
                 )
+            embedding_size = model.get_input_embeddings().weight.shape[0]
+            # * resize embedding
+            if tokenizer.pad_token is None:
+                logger.debug(f"len(tokenizer):{len(tokenizer)}")
+                logger.debug(f"Adding pad token {DEFAULT_PAD_TOKEN} ...")
+                tokenizer.add_special_tokens(dict(pad_token=DEFAULT_PAD_TOKEN))
+                logger.debug(f"len(tokenizer):{len(tokenizer)}")
+            if len(tokenizer) != embedding_size:
+                logger.debug("resize the embedding size by the size of the tokenizer ...")
+                model.resize_token_embeddings(len(tokenizer))
         else:
             logger.debug(f"local_rank {local_rank}: Construct `from_pretrained` kwargs ...")
             model = None
@@ -197,11 +203,11 @@ def main() -> None:
     # * Loading tokenizer
     tokenizer = load_tokenizer()
 
-    # * load dataset
-    train_dataset, val_dataset, test_dataset = load_dataset(tokenizer)
-
     # *load model
     model, model_config, model_class, from_pretrained_kwargs = load_model(tokenizer)
+
+    # * load dataset
+    train_dataset, val_dataset, test_dataset = load_dataset(tokenizer)
 
     # *load generation config
     if config.task_type == "generate":

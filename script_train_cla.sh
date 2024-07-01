@@ -77,6 +77,7 @@ do
         --dataset_name $dataset_name \
         --torch_dtype $torch_dtype \
         --max_length $max_length \
+        --max_length_input $max_length \
         --dashboard "None" \
         --metric $metric \
         --model_dir ${model_dir} \
@@ -97,7 +98,7 @@ do
         --opt_weight_decay $opt_weight_decay \
         --ddp_timeout 30000 \
         --logging_steps 1 \
-        --padding_side "left" \
+        --padding_side "right" \
         --save_dir None \
         --cut_input_from_output True \
         --hf_gen_config_file $hf_gen_config_file \
