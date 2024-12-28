@@ -12,6 +12,11 @@ from toolkit.nlp.data import ClassificationLabel, FinelyControlledText, PairedTe
 from transformers import PreTrainedTokenizer
 
 
+class DatasetName(Enum):
+    fool_cls = auto()
+    fool_gen = auto()
+
+
 class TextType(Enum):
     ORI = auto()
 
@@ -23,7 +28,7 @@ def load_data_fn4generate(data_file_path: Path | str, model_type: str, tokenizer
     SEP = special_tokens_map["sep_token"] if "sep_token" in special_tokens_map.keys() else None
     MASK = special_tokens_map["mask_token"] if "mask_token" in special_tokens_map.keys() else None
     CLS = special_tokens_map["cls_token"] if "cls_token" in special_tokens_map.keys() else None
-    text_type = TextType[kwargs["text_type"]]
+    text_type = kwargs["text_type"]
     try:
         model_name = kwargs["model_name"]
     except:
@@ -70,7 +75,12 @@ def load_data_fn4generate(data_file_path: Path | str, model_type: str, tokenizer
         inputs.append(a_sample)
         labels.append(a_label)
 
-    print(f"### Input ###\n{input_str}\n\n### Output ###\n{label_str}\n\n")
+    print("=" * 30 + split.name + "=" * 30)
+    print("### Input: ")
+    print(inputs[0])
+    print("### Output: ")
+    print(labels[0])
+    print("=" * 60)
     return inputs, labels
 
 
@@ -81,7 +91,7 @@ def load_data_fn4classify(data_file_path: Path | str, model_type: str, tokenizer
     SEP = special_tokens_map["sep_token"] if "sep_token" in special_tokens_map.keys() else None
     MASK = special_tokens_map["mask_token"] if "mask_token" in special_tokens_map.keys() else None
     CLS = special_tokens_map["cls_token"] if "cls_token" in special_tokens_map.keys() else None
-    text_type = TextType[kwargs["text_type"]]
+    text_type = kwargs["text_type"]
     try:
         model_name = kwargs["model_name"]
     except:
@@ -126,5 +136,13 @@ def load_data_fn4classify(data_file_path: Path | str, model_type: str, tokenizer
         inputs.append(a_sample)
         labels.append(a_label)
 
-    print(f"### Input ###\n{input_str}\n\n### Output ###\n{label_str}\n\n")
+    print("=" * 30 + split.name + "=" * 30)
+    print("### Input: ")
+    print(inputs[0])
+    print("### Output: ")
+    print(labels[0])
+    print("=" * 60)
     return inputs, labels
+
+
+LOAD_DATA_FNS = {DatasetName.fool_cls: load_data_fn4classify, DatasetName.fool_gen: load_data_fn4generate}
