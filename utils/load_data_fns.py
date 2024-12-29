@@ -41,6 +41,17 @@ def load_data_fn4generate(data_file_path: Path | str, model_type: str, tokenizer
     # if no_error_ratio:
     #     no_error_ratio = float(no_error_ratio.group(1))
 
+    # # 采样
+    # df = df.sample(10000, replace=False, random_state=42)
+    # if split == Split.TRAINING:
+    #     df = df.iloc[: int(len(df) * 0.7)]
+    # elif split == Split.VALIDATION:
+    #     df = df.iloc[int(len(df) * 0.7) : int(len(df) * 0.8)]
+    # else:
+    #     df = df.iloc[int(len(df) * 0.8) :]
+
+    # iterator = df.iterrows()
+
     if isinstance(data_file_path, str | Path):
         data_file_path = Path(data_file_path)
         if data_file_path.is_dir():
@@ -70,6 +81,7 @@ def load_data_fn4generate(data_file_path: Path | str, model_type: str, tokenizer
                 label_str = row["outputs"]
                 if split == Split.TRAINING:
                     a_label = PairedText(label_str + EOS)
+                    # a_label = PairedText(label_str)  ## 如果为 encoder-decoder 结构模型，则不需要手动添加 EOS
                 else:
                     a_label = label_str
         inputs.append(a_sample)

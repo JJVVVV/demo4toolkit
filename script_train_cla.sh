@@ -16,7 +16,7 @@ fi
 deepspeed_config_file="./configs/ds_zero2.hjson"
 activation_checkpointing=True
 accumulate_step=1
-cut_input_from_output=True
+cut_input_from_output=None
 
 
 # 模型与任务
@@ -52,7 +52,7 @@ max_length_input=None
 learning_rate='2e-5'
 weight_decay=0.1
 metric='accuracy'
-padding_side='right'
+padding_side='None'
 sch_type="WarmupDecayLR"
 warmup_ratio=0.1
 
