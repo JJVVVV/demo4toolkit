@@ -3,51 +3,50 @@
 # nohup ./script_train_gen.sh > /dev/null 2>&1 &
 # tmux new-session -d -s train_task 'bash ./script_train_gen.sh > /dev/null 2>&1'
 
-PATH="/home/qwe/miniconda3/envs/jjvv/bin:$PATH"
-
-CUDA_VISIBLE_DEVICES=1
+CUDA_VISIBLE_DEVICES=0,1
 
 # 模型与任务
+dashboard=None
 dataset_name=fool
-model_type="deepseek-coder-1.3b-instruct"
-model_dir="/home/qwe/test/pretrained_model/$model_type"
-if [[ "$model_type" == *"deepseek"* ]]; then
-    model_type="deepseek-ai/$model_type"
-else
-    model_type="meta-llama/$model_type"
-fi
-echo $model_type
-model_structure=decoder
+model_dir=None
+model_type="Qwen/Qwen2.5-0.5B-Instruct"
+model_structure="decoder"
 task_type=generate
 
+text_type=ORI
+model_name="baseline"
+part=all
 
 # 训练参数
-model_name="baseline"
-text_type=ORI
-epochs=3
-train_batch_size=32
-infer_batch_size=16
-max_length=2048
+activation_checkpointing=False
 gradient_accumulation_steps=1
+
+seeds=(2)
+epochs=3
+train_batch_size=16
+infer_batch_size=16
+max_length=None
+opt_type="AdamW"
 opt_lrs=("2e-5")
 opt_weight_decay=0.01
 sch_type=WarmupDecayLR
 sch_warmup_ratio_steps=0.1
 metric='rougeL'
-activation_checkpointing=True
+eval_every_half_epoch=False
 
-if [ "$model_type" = "deepseek-ai/deepseek-coder-1.3b-instruct" ]; then
+if [ "$model_type" = "Qwen/Qwen2.5-0.5B-Instruct" ]; then
     fp16=False
-    bf16=True
-    torch_dtype=bfloat16
+    bf16=False
+    torch_dtype=float32
     deepspeed_config_file=./configs/ds_zero2.hjson
-    hf_gen_config_file="./configs/generate_config.json"
+    hf_generation_config_file="./configs/generate_config_qwen.json"
     gradient_accumulation_steps=1
 elif [ "$model_type" = "XXX" ]; then
     exit 1
+    :
 fi
 
-
+cache_dataset=False
 # 数据集文件
 if [ "$text_type" = "ORI" ]; then
     train_file_path="data/$dataset_name/train/train_generate.json"
@@ -59,55 +58,129 @@ elif [ "$text_type" = "XXX" ]; then
 fi
 
 
-IFS=',' nproc_per_node=($CUDA_VISIBLE_DEVICES) IFS=' '
-nproc_per_node=${#nproc_per_node[@]}
-echo $nproc_per_node
+# 定义一个数组，存放可用cuda
+# IFS=',' cudas=($CUDA_VISIBLE_DEVICES) IFS=' '
+IFS='/' cudas=($CUDA_VISIBLE_DEVICES) IFS=' '
+# 计算每个每个任务可用cuda数量
+IFS=',' nproc_pre_node=(${cudas[0]}) IFS=' '
+nproc_pre_node=${#nproc_pre_node[@]}
+# 定义一个变量，表示最大并行数
+parallel=${#cudas[@]}
+# 定义一个数组，存放当前运行的进程号
+pids=()
+# 定义一个字典, 记录PID运行在哪个CUDA设备上
+declare -A pid_cuda
 
-
-for opt_lr in "${opt_lrs[@]}"
+    # 遍历所有的种子
+for seed in ${seeds[@]}
 do
-    CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES \
-    torchrun --nnodes 1 --nproc_per_node $nproc_per_node --master-port 29503 train.py \
-        --model_structure $model_structure \
-        --task_type $task_type \
-        --parallel_mode "deepspeed" \
-        --model_name $model_name \
-        --model_type $model_type \
-        --dataset_name $dataset_name \
-        --torch_dtype $torch_dtype \
-        --max_length $max_length \
-        --dashboard "None" \
-        --metric $metric \
-        --model_dir ${model_dir} \
-        --train_file_path ${train_file_path} \
-        --val_file_path ${val_file_path} \
-        --test_file_path $test_file_path \
-        --train_batch_size ${train_batch_size} \
-        --infer_batch_size ${infer_batch_size} \
-        --gradient_accumulation_steps ${gradient_accumulation_steps} \
-        --seed 0 \
-        --fp16 $fp16 \
-        --bf16 $bf16 \
-        --epochs $epochs \
-        --opt_type "AdamW" \
-        --opt_lr ${opt_lr} \
-        --sch_type $sch_type \
-        --sch_warmup_ratio_steps $sch_warmup_ratio_steps \
-        --opt_weight_decay $opt_weight_decay \
-        --ddp_timeout 30000 \
-        --logging_steps 1 \
-        --padding_side "left" \
-        --save_dir None \
-        --cut_input_from_output True \
-        --hf_gen_config_file $hf_gen_config_file \
-        --use_deepspeed_ckpt False \
-        --save_ckpts False \
-        --save_all_ckpts False \
-        --save_last_ckpt False \
-        --cache_dataset False \
-        --deepspeed_config $deepspeed_config_file \
-        --padding_to_max_length False \
-        --text_type $text_type \
-        --activation_checkpointing $activation_checkpointing \
-        > training.log 2>&1
+    for opt_lr in ${opt_lrs[@]}
+    do
+        # 判断有无console目录, 没有则创建
+        log_file="logs/$dataset_name-$text_type-$model_type-$model_name-$epochs-$train_batch_size-$opt_lr-$part-$seed.ansi.log"
+        log_dir=${log_file%/*}
+        if [ ! -d log_dir ]; then
+            mkdir -p $log_dir
+        fi
+        # 如果当前运行的进程数达到最大并行数，就等待任意一个进程结束: 从数组pids中删除结束进程的PID, 释放一个CUDA
+        if [ ${#pids[@]} -eq $parallel ]; then
+            wait -n ${pids[@]}
+            # 删除已经结束的进程号, 释放一个可用的cuda
+            for pid in ${pids[@]}
+            do
+            if ! ps -p $pid > /dev/null ; then
+                # echo $pid
+                finishedPID=$pid
+                break
+            fi
+            done
+            echo "finishPID: $finishedPID"
+            pids=(${pids[@]/$finishedPID/})
+            cudas+=(${pid_cuda[$finishedPID]})
+            echo "freeCUDA: ${pid_cuda[$finishedPID]}"
+            unset pid_cuda[$finishedPID]
+            echo "runningProcesses: ${pids[@]}"
+            echo "avaliableCUDAs: ${cudas[@]}"
+            echo
+        fi
+        # 启动一个新训练任务: 使用一个可用的cuda,并把它的PID添加到数组pids中
+        cuda=${cudas[0]}
+        unset cudas[0]
+        cudas=(${cudas[@]})
+
+        # ###################################训练程序#########################################
+        # TORCH_DISTRIBUTED_DEBUG=INFO \
+        if [ $nproc_pre_node -gt 1 ]; then
+            executable="torchrun \
+            --rdzv-backend=c10d \
+            --rdzv-endpoint=localhost:0 \
+            --nnodes=1 \
+            --nproc-per-node=$nproc_pre_node \
+            --master-port 29503"
+            parallel_mode="deepspeed"
+        else
+            executable="python"
+            parallel_mode="None"
+            deepspeed_config_file="None"
+        fi
+        CUDA_VISIBLE_DEVICES=$cuda \
+        $executable ./train.py \
+            --dataset_name $dataset_name \
+            --model_type $model_type \
+            --model_name $model_name \
+            --train_file_path $train_file_path \
+            --val_file_path $val_file_path \
+            --test_file_path $test_file_path \
+            --seed $seed \
+            --opt_type $opt_type \
+            --sch_type $sch_type \
+            --opt_lr $opt_lr \
+            --epochs $epochs \
+            --train_batch_size $train_batch_size \
+            --infer_batch_size $infer_batch_size \
+            --sch_warmup_ratio_steps $sch_warmup_ratio_steps \
+            --max_length $max_length \
+            --metric $metric \
+            --eval_every_half_epoch $eval_every_half_epoch \
+            --gradient_accumulation_steps $gradient_accumulation_steps \
+            --fp16 $fp16 \
+            --bf16 $bf16 \
+            --opt_weight_decay $opt_weight_decay \
+            --dashboard $dashboard \
+            --save_ckpts True \
+            --save_all_ckpts True \
+            --model_dir $model_dir \
+            --model_structure $model_structure \
+            --task_type $task_type \
+            --cache_dataset $cache_dataset \
+            --activation_checkpointing $activation_checkpointing \
+            --padding_side None \
+            --cut_input_from_output None \
+            --parallel_mode $parallel_mode \
+            --padding_to_max_length False \
+            --logging_steps 1 \
+            --save_dir None \
+            --use_deepspeed_ckpt False \
+            --deepspeed_config $deepspeed_config_file \
+            --text_type $text_type \
+            --part $part \
+            --torch_dtype $torch_dtype \
+            --ddp_timeout 30000 \
+            --hf_generation_config_file $hf_generation_config_file \
+            # > $log_file 2>&1 &
+
+        # ###################################训练程序#########################################
+        newPID=$!
+        pids+=($newPID)
+        pid_cuda[$newPID]=$cuda
+        echo "newPID: $newPID"
+        echo "useCUDA: ${pid_cuda[$newPID]}"
+        echo "runningProcesses: ${pids[@]}"
+        echo "avaliableCUDAs: ${cudas[@]}"
+        echo
+    done
 done
+
+# 等待所有剩余的进程结束
+wait ${pids[@]}
+
