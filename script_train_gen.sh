@@ -1,6 +1,7 @@
 #!/bin/bash
 
-# nohup ./script_train_gen.sh > /dev/null 2>&1 &
+# ./script_train_gen.sh
+# nohup ./script_train_gen.sh &
 # tmux new-session -d -s train_task 'bash ./script_train_gen.sh > /dev/null 2>&1'
 
 CUDA_VISIBLE_DEVICES=0,1
@@ -49,8 +50,8 @@ fi
 cache_dataset=False
 # 数据集文件
 if [ "$text_type" = "ORI" ]; then
-    train_file_path="data/$dataset_name/train/train_generate.json"
-    val_file_path="data/$dataset_name/dev/dev_generate.json"
+    train_file_path="data/fool/train/train_generate.json"
+    val_file_path="data/fool/dev/dev_generate.json"
     test_file_path=None
 elif [ "$text_type" = "XXX" ]; then
     exit 1
