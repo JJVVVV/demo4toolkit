@@ -1,8 +1,10 @@
 #!/bin/bash
 
-# nohup ./script_train_cla.sh > /dev/null 2>&1 &
+# ./script_train_cla.sh
+# nohup ./script_train_cla.sh &
 # tmux new-session -d -s train_task 'bash ./script_train_cla.sh > /dev/null 2>&1'
 
+# PATH="/home/qwe/miniconda3/envs/jjvv/bin:$PATH"
 
 CUDA_VISIBLE_DEVICES=0
 
@@ -54,8 +56,8 @@ fi
 cache_dataset=False
 # 数据集文件
 if [ "$text_type" = "ORI" ]; then
-    train_file_path="data/$dataset_name/train/train_classify.json"
-    val_file_path="data/$dataset_name/dev/dev_classify.json"
+    train_file_path="data/fool/train/train_classify.json"
+    val_file_path="data/fool/dev/dev_classify.json"
     test_file_path=None
 elif [ "$text_type" = "XXX" ]; then
     exit 1

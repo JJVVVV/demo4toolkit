@@ -12,7 +12,7 @@ from sklearn.metrics import accuracy_score, f1_score
 from toolkit import toolkit_logger
 from toolkit.enums import Split
 from toolkit.metric import MetricDict, bleu, rouge, self_bleu
-from toolkit.training import Evaluator
+from toolkit.training.evaluator import Evaluator
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
