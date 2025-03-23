@@ -23,11 +23,8 @@ def load_data_fn4generate(data_file_path: Path | str, model_type: str, tokenizer
     SEP = special_tokens_map["sep_token"] if "sep_token" in special_tokens_map.keys() else None
     MASK = special_tokens_map["mask_token"] if "mask_token" in special_tokens_map.keys() else None
     CLS = special_tokens_map["cls_token"] if "cls_token" in special_tokens_map.keys() else None
-    text_type = TextType[kwargs["text_type"]]
-    try:
-        model_name = kwargs["model_name"]
-    except:
-        model_name = None
+    config = kwargs["config_load_data"]
+    text_type = TextType[config.text_type]
 
     # t2s_ratio = re.search(r"mix_t2s_ratio=([\d\.]+)", model_name)
     # if t2s_ratio:
@@ -57,7 +54,11 @@ def load_data_fn4generate(data_file_path: Path | str, model_type: str, tokenizer
         # input
         match text_type:
             case TextType.ORI:
-                input_str = row["inputs"]
+                messages = [
+                    {"role": "system", "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant."},
+                    {"role": "user", "content": f'"{row["inputs"]}"下一句是?'},
+                ]
+                input_str = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, continue_final_message=False)
                 a_sample = PairedText(input_str)
         # label
         match text_type:
@@ -70,7 +71,12 @@ def load_data_fn4generate(data_file_path: Path | str, model_type: str, tokenizer
         inputs.append(a_sample)
         labels.append(a_label)
 
-    print(f"### Input ###\n{input_str}\n\n### Output ###\n{label_str}\n\n")
+    print("=" * 30 + split.name + "=" * 30)
+    print("### Input: ")
+    print(inputs[0])
+    print("### Output: ")
+    print(labels[0])
+    print("=" * 60)
     return inputs, labels
 
 
@@ -81,11 +87,8 @@ def load_data_fn4classify(data_file_path: Path | str, model_type: str, tokenizer
     SEP = special_tokens_map["sep_token"] if "sep_token" in special_tokens_map.keys() else None
     MASK = special_tokens_map["mask_token"] if "mask_token" in special_tokens_map.keys() else None
     CLS = special_tokens_map["cls_token"] if "cls_token" in special_tokens_map.keys() else None
-    text_type = TextType[kwargs["text_type"]]
-    try:
-        model_name = kwargs["model_name"]
-    except:
-        model_name = None
+    config = kwargs["config_load_data"]
+    text_type = TextType[config.text_type]
 
     # t2s_ratio = re.search(r"mix_t2s_ratio=([\d\.]+)", model_name)
     # if t2s_ratio:
@@ -126,5 +129,10 @@ def load_data_fn4classify(data_file_path: Path | str, model_type: str, tokenizer
         inputs.append(a_sample)
         labels.append(a_label)
 
-    print(f"### Input ###\n{input_str}\n\n### Output ###\n{label_str}\n\n")
+    print("=" * 30 + split.name + "=" * 30)
+    print("### Input: ")
+    print(inputs[0])
+    print("### Output: ")
+    print(labels[0])
+    print("=" * 60)
     return inputs, labels
