@@ -263,7 +263,7 @@ if __name__ == "__main__":
     # * Create logger
     output_path_logger = config.save_dir / "report.log"
     logger = getLogger(__name__, output_path_logger)
-    toolkit.set_file_logger(output_path_logger)
+    # toolkit.set_file_logger(output_path_logger)
 
     # * Initalize parallel and seed
     local_rank, world_size = Trainer.initialize(config, 0.5 if config.parallel_mode is None else None)
