@@ -136,7 +136,7 @@ do
             parallel_mode="None"
             deepspeed_config_file="None"
         fi
-        CUDA_VISIBLE_DEVICES=$cuda \
+        HF_ENDPOINT="https://hf-mirror.com" CUDA_VISIBLE_DEVICES=$cuda \
         $executable ./train.py \
             --dataset_name $dataset_name \
             --model_type $model_type \

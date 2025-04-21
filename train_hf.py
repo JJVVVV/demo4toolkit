@@ -258,8 +258,6 @@ def main() -> None:
     )
 
     trainer.train()
-    #  todo 逻辑有问题，只能手动加载ckpt中的模型，因为cpkt_manager在trainer中，而trainer的初始化在模型加载之后。
-    config.model_dir = config.model_dir if trainer.ckpt_manager.latest_id < 0 else trainer.ckpt_manager.latest_dir
 
 
 if __name__ == "__main__":
