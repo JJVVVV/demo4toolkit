@@ -6,7 +6,12 @@
 
 # PATH="/home/qwe/miniconda3/envs/jjvv/bin:$PATH"
 
-CUDA_VISIBLE_DEVICES=0
+if [ -z "$1" ]; then
+  CUDA_VISIBLE_DEVICES=0
+else
+  CUDA_VISIBLE_DEVICES=$1
+fi
+
 
 # 模型与任务
 dashboard=None

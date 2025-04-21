@@ -1,28 +1,34 @@
 #!/bin/bash
 
-# ./script_train_gen.sh
-# nohup ./script_train_gen.sh &
-# tmux new-session -d -s train_task 'bash ./script_train_gen.sh > /dev/null 2>&1'
+# ./script_train_cla_hf.sh
+# nohup ./script_train_cla_hf.sh &
+
+# PATH="/home/qwe/miniconda3/envs/jjvv/bin:$PATH"
 
 if [ -z "$1" ]; then
-  CUDA_VISIBLE_DEVICES=0,1
+  CUDA_VISIBLE_DEVICES=0
 else
   CUDA_VISIBLE_DEVICES=$1
 fi
 
+
 # 模型与任务
 dashboard=None
 dataset_name=fool
+num_classification=2
 model_dir=None
-model_type="Qwen/Qwen2.5-0.5B-Instruct"
-model_structure="decoder"
-task_type=generate
+model_type="bert-base-chinese"
+model_structure="encoder"
+task_type=classify
 
 text_type=ORI
 model_name="baseline"
 part=all
 
 # 训练参数
+parallel_mode="deepspeed"
+parallel_mode=None
+
 activation_checkpointing=False
 gradient_accumulation_steps=1
 
@@ -30,21 +36,21 @@ seeds=(2)
 epochs=3
 train_batch_size=16
 infer_batch_size=16
-max_length=None
+max_length_input=None
 opt_type="AdamW"
 opt_lrs=("2e-5")
 opt_weight_decay=0.01
 sch_type=WarmupDecayLR
 sch_warmup_ratio_steps=0.1
-metric='rougeL'
+metric='accuracy'
 eval_every_half_epoch=False
 
-if [ "$model_type" = "Qwen/Qwen2.5-0.5B-Instruct" ]; then
-    fp16=False
+if [ "$model_type" = "bert-base-chinese" ]; then
+    fp16=True
     bf16=False
-    torch_dtype=float32
+    torch_dtype=auto
     deepspeed_config_file=./configs/ds_zero2.hjson
-    hf_generation_config_file="./configs/generate_config_qwen.json"
+    hf_generation_config_file="./configs/generate_config.json"
     gradient_accumulation_steps=1
 elif [ "$model_type" = "XXX" ]; then
     exit 1
@@ -54,13 +60,14 @@ fi
 cache_dataset=False
 # 数据集文件
 if [ "$text_type" = "ORI" ]; then
-    train_file_path="data/fool/train/train_generate.json"
-    val_file_path="data/fool/dev/dev_generate.json"
+    train_file_path="data/fool/train/train_classify.json"
+    val_file_path="data/fool/dev/dev_classify.json"
     test_file_path=None
 elif [ "$text_type" = "XXX" ]; then
     exit 1
     :
 fi
+
 
 
 # 定义一个数组，存放可用cuda
@@ -129,7 +136,7 @@ do
             deepspeed_config_file="None"
         fi
         CUDA_VISIBLE_DEVICES=$cuda \
-        $executable ./train.py \
+        $executable ./train_hf.py \
             --dataset_name $dataset_name \
             --model_type $model_type \
             --model_name $model_name \
@@ -144,7 +151,7 @@ do
             --train_batch_size $train_batch_size \
             --infer_batch_size $infer_batch_size \
             --sch_warmup_ratio_steps $sch_warmup_ratio_steps \
-            --max_length $max_length \
+            --max_length_input $max_length_input \
             --metric $metric \
             --eval_every_half_epoch $eval_every_half_epoch \
             --gradient_accumulation_steps $gradient_accumulation_steps \
@@ -152,8 +159,8 @@ do
             --bf16 $bf16 \
             --opt_weight_decay $opt_weight_decay \
             --dashboard $dashboard \
-            --save_ckpts True \
-            --save_all_ckpts True \
+            --save_ckpts False \
+            --save_all_ckpts False \
             --model_dir $model_dir \
             --model_structure $model_structure \
             --task_type $task_type \
@@ -167,6 +174,7 @@ do
             --save_dir None \
             --use_deepspeed_ckpt False \
             --deepspeed_config $deepspeed_config_file \
+            --num_classification $num_classification \
             --text_type $text_type \
             --part $part \
             --torch_dtype $torch_dtype \
@@ -188,4 +196,3 @@ done
 
 # 等待所有剩余的进程结束
 wait ${pids[@]}
-
