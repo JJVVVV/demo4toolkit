@@ -324,7 +324,7 @@ if __name__ == "__main__":
             include_for_metrics=["loss"],  # acceptable values: "loss" "inputs"
             save_total_limit=1,
             load_best_model_at_end=False,  # TODO 当前 Seq2SeqTrainer 无法评估 encoder-only 模型, 故只能设为 False
-            metric_for_best_model="eval_loss",  # TODO 默认值为 eval_loss, 然而 Seq2SeqTrainer 无法评估 encoder-only 模型, 也无法计算 loss
+            # metric_for_best_model="eval_loss",  # TODO 默认值为 eval_loss, 然而 Seq2SeqTrainer 无法评估 encoder-only 模型, 也无法计算 loss
             push_to_hub=False,
             remove_unused_columns=False,
             logging_steps=config.logging_steps,
