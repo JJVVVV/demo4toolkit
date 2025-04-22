@@ -22,6 +22,8 @@ from transformers import (
     GenerationConfig,
     HfArgumentParser,
     PreTrainedTokenizer,
+    Seq2SeqTrainer,
+    Seq2SeqTrainingArguments,
     Trainer,
     TrainingArguments,
     default_data_collator,
@@ -161,7 +163,7 @@ def load_model(tokenizer):
             # target_modules = 'all-linear',
             target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
             # target_modules="all",
-            task_type=TaskType.CAUSAL_LM,
+            task_type=TaskType.CAUSAL_LM if config.task_type == "generate" else TaskType.SEQ_CLS,
             inference_mode=False,
             r=8,
             lora_alpha=32,
@@ -217,6 +219,9 @@ def compute_metrics(p: EvalPrediction):
             preds = np.argmax(preds, axis=1)
             result = metric.compute(predictions=preds, references=p.label_ids)
         case "generate":
+            import pdb
+
+            pdb.set_trace()
             pass
         case "multi_label":  # ? NLPTrainingConfig还未支持这种任务
             metric = evaluate.load("f1", config_name="multilabel", cache_dir=config.save_dir)
@@ -247,13 +252,13 @@ def main() -> None:
     dataset = load_dataset(tokenizer)
 
     # * Train
-    trainer = Trainer(
+    TrainerClass = Seq2SeqTrainer if config.task_type == "generate" else Trainer
+    trainer = TrainerClass(
         model=model,
         args=training_args,
         train_dataset=dataset["train"],
         eval_dataset=dataset["val"],
         processing_class=tokenizer,
-        data_collator=dataset["train"].collate_fn,
         compute_metrics=compute_metrics,
     )
 
@@ -298,20 +303,42 @@ if __name__ == "__main__":
 
     # parser = HfArgumentParser(TrainingArguments)
     # training_args = parser.parse_args_into_dataclasses()
-    training_args = TrainingArguments(
-        output_dir=config.save_dir,
-        learning_rate=config.opt_lr,
-        per_device_train_batch_size=config.train_batch_size,
-        per_device_eval_batch_size=config.infer_batch_size,
-        num_train_epochs=config.epochs,
-        weight_decay=config.opt_weight_decay,
-        eval_strategy="epoch",
-        save_strategy="epoch",
-        load_best_model_at_end=True,
-        push_to_hub=False,
-        remove_unused_columns=False,
-        logging_steps=config.logging_steps,
-    )
+    if config.task_type == "generate":
+        training_args = Seq2SeqTrainingArguments(
+            output_dir=config.save_dir,
+            learning_rate=config.opt_lr,
+            per_device_train_batch_size=config.train_batch_size,
+            per_device_eval_batch_size=config.infer_batch_size,
+            num_train_epochs=config.epochs,
+            weight_decay=config.opt_weight_decay,
+            eval_strategy="epoch",
+            save_strategy="epoch",
+            load_best_model_at_end=True,
+            push_to_hub=False,
+            remove_unused_columns=False,
+            logging_steps=config.logging_steps,
+            optim="adamw_torch",
+            lr_scheduler_type="linear",
+            predict_with_generate=True,
+            generation_config=config.hf_generation_config_file,
+        )
+    else:
+        training_args = TrainingArguments(
+            output_dir=config.save_dir,
+            learning_rate=config.opt_lr,
+            per_device_train_batch_size=config.train_batch_size,
+            per_device_eval_batch_size=config.infer_batch_size,
+            num_train_epochs=config.epochs,
+            weight_decay=config.opt_weight_decay,
+            eval_strategy="epoch",
+            save_strategy="epoch",
+            load_best_model_at_end=True,
+            push_to_hub=False,
+            remove_unused_columns=False,
+            logging_steps=config.logging_steps,
+            optim="adamw_torch",
+            lr_scheduler_type="linear",
+        )
     if dist.is_initialized():
         local_rank, world_size = dist.get_rank(), dist.get_world_size()
     else:
