@@ -13,7 +13,7 @@
     if hasattr(self.train_dataset, "collate_fn"):
         data_collator = self.train_dataset.collate_fn
     ```
-2. 在`Trainer.get_test_dataloader`函数中, 在代码
+2. 在`Trainer.get_eval_dataloader`函数中, 在代码
     ```python
     data_collator = self.data_collator
     ```
