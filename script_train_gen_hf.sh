@@ -27,7 +27,7 @@ activation_checkpointing=False
 gradient_accumulation_steps=1
 
 seeds=(2)
-epochs=2
+epochs=3
 train_batch_size=4
 infer_batch_size=4
 max_length=None
