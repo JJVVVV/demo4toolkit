@@ -31,7 +31,7 @@ from transformers import (
 
 from models.classification_models import BertModel_multi_classify, DoubleBERT, DoubleRoberta, RobertaModel_multi_classify
 from utils.evaluators import Evaluator4Classify, Evaluator4Generate
-from utils.load_data_fn import load_data_fn4classify, load_data_fn4generate
+from utils.load_data_fn import load_data_fn4classify, load_data_fn4generate, load_data_fn4generate_hf
 
 # import evaluate
 # metric = evaluate.load("accuracy", cache_dir=model_args.cache_dir)
@@ -79,6 +79,9 @@ def load_dataset(tokenizer: PreTrainedTokenizer) -> tuple:
         configs=config,
         config_load_data=config,
     )
+    # TODO 因为 HF 目前没有能用于在训练中评估 encoder-only 模型的 trainer, 所以暂时使用 Seq2SeqTrainer, 而该 Trainer 无法实现指标计算, 必须将 labels 置为 None 才不会报错.
+    if val_dataset is not None and config.task_type == "generate":
+        val_dataset.tokens_labels = None
     test_dataset = TextDataset.from_file(
         tokenizer=tokenizer,
         load_data_fn=load_data_fn4generate if config.task_type == "generate" else load_data_fn4classify,
@@ -86,6 +89,9 @@ def load_dataset(tokenizer: PreTrainedTokenizer) -> tuple:
         configs=config,
         config_load_data=config,
     )
+    # TODO 因为 HF 目前没有能用于在训练中评估 encoder-only 模型的 trainer, 所以暂时使用 Seq2SeqTrainer, 而该 Trainer 无法实现指标计算, 必须将 labels 置为 None 才不会报错.
+    if test_dataset is not None and config.task_type == "generate":
+        test_dataset.tokens_labels = None
     if dist.is_initialized():
         dist.barrier()
     return DatasetDict({"train": train_dataset, "val": val_dataset, "test": test_dataset})
@@ -219,9 +225,11 @@ def compute_metrics(p: EvalPrediction):
             preds = np.argmax(preds, axis=1)
             result = metric.compute(predictions=preds, references=p.label_ids)
         case "generate":
-            import pdb
+            # import pdb
 
-            pdb.set_trace()
+            # pdb.set_trace()
+            labels = p.label_ids
+
             pass
         case "multi_label":  # ? NLPTrainingConfig还未支持这种任务
             metric = evaluate.load("f1", config_name="multilabel", cache_dir=config.save_dir)
@@ -313,7 +321,10 @@ if __name__ == "__main__":
             weight_decay=config.opt_weight_decay,
             eval_strategy="epoch",
             save_strategy="epoch",
-            load_best_model_at_end=True,
+            include_for_metrics=["loss"],  # acceptable values: "loss" "inputs"
+            save_total_limit=1,
+            load_best_model_at_end=False,  # TODO 当前 Seq2SeqTrainer 无法评估 encoder-only 模型, 故只能设为 False
+            metric_for_best_model="eval_loss",  # TODO 默认值为 eval_loss, 然而 Seq2SeqTrainer 无法评估 encoder-only 模型, 也无法计算 loss
             push_to_hub=False,
             remove_unused_columns=False,
             logging_steps=config.logging_steps,
@@ -332,7 +343,10 @@ if __name__ == "__main__":
             weight_decay=config.opt_weight_decay,
             eval_strategy="epoch",
             save_strategy="epoch",
+            include_for_metrics=["loss"],  # acceptable values: "loss" "inputs"
+            save_total_limit=1,
             load_best_model_at_end=True,
+            metric_for_best_model="eval_accuracy",
             push_to_hub=False,
             remove_unused_columns=False,
             logging_steps=config.logging_steps,
@@ -343,4 +357,5 @@ if __name__ == "__main__":
         local_rank, world_size = dist.get_rank(), dist.get_world_size()
     else:
         local_rank, world_size = 0, 1
+    # tokenizer = load_tokenizer()
     main()
