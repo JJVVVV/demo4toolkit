@@ -3,7 +3,7 @@ import re
 import time
 from pathlib import Path
 
-import evaluate
+# import evaluate
 import numpy as np
 import pandas as pd
 import toolkit
@@ -11,31 +11,28 @@ import torch
 import torch.distributed as dist
 from datasets import Dataset, DatasetDict
 from fire import Fire
+from sklearn.metrics import accuracy_score, f1_score
 from toolkit.logger import getLogger
+from toolkit.metric import MetricDict, bleu, rouge, self_bleu
 from toolkit.nlp import NLPTrainingConfig, TextDataset
 from transformers import (
     AutoConfig,
     AutoModelForCausalLM,
+    AutoModelForSeq2SeqLM,
     AutoModelForSequenceClassification,
     AutoTokenizer,
     EvalPrediction,
     GenerationConfig,
-    HfArgumentParser,
     PreTrainedTokenizer,
     Seq2SeqTrainer,
     Seq2SeqTrainingArguments,
     Trainer,
     TrainingArguments,
-    default_data_collator,
 )
 
 from models.classification_models import BertModel_multi_classify, DoubleBERT, DoubleRoberta, RobertaModel_multi_classify
 from utils.evaluators import Evaluator4Classify, Evaluator4Generate
 from utils.load_data_fn import load_data_fn4classify, load_data_fn4generate, load_data_fn4generate_hf
-
-# import evaluate
-# metric = evaluate.load("accuracy", cache_dir=model_args.cache_dir)
-
 
 IGNORE_INDEX = -100
 DEFAULT_PAD_TOKEN = "[PAD]"
@@ -67,31 +64,33 @@ def load_dataset(tokenizer: PreTrainedTokenizer) -> tuple:
     # * Load training data, development data and test data
     train_dataset = TextDataset.from_file(
         tokenizer=tokenizer,
-        load_data_fn=load_data_fn4generate if config.task_type == "generate" else load_data_fn4classify,
+        load_data_fn=load_data_fn4generate_hf if config.task_type == "generate" else load_data_fn4classify,
         split="TRAINING",
         configs=config,
         config_load_data=config,
     )
     val_dataset = TextDataset.from_file(
         tokenizer=tokenizer,
-        load_data_fn=load_data_fn4generate if config.task_type == "generate" else load_data_fn4classify,
+        load_data_fn=load_data_fn4generate_hf if config.task_type == "generate" else load_data_fn4classify,
         split="VALIDATION",
         configs=config,
         config_load_data=config,
     )
     # TODO 因为 HF 目前没有能用于在训练中评估 encoder-only 模型的 trainer, 所以暂时使用 Seq2SeqTrainer, 而该 Trainer 无法实现指标计算, 必须将 labels 置为 None 才不会报错.
-    if val_dataset is not None and config.task_type == "generate":
+    if val_dataset is not None and config.task_type == "generate" and config.model_structure == "decoder":
         val_dataset.tokens_labels = None
+        val_dataset.truncate_pad_label = False
     test_dataset = TextDataset.from_file(
         tokenizer=tokenizer,
-        load_data_fn=load_data_fn4generate if config.task_type == "generate" else load_data_fn4classify,
+        load_data_fn=load_data_fn4generate_hf if config.task_type == "generate" else load_data_fn4classify,
         split="TEST",
         configs=config,
         config_load_data=config,
     )
     # TODO 因为 HF 目前没有能用于在训练中评估 encoder-only 模型的 trainer, 所以暂时使用 Seq2SeqTrainer, 而该 Trainer 无法实现指标计算, 必须将 labels 置为 None 才不会报错.
-    if test_dataset is not None and config.task_type == "generate":
+    if test_dataset is not None and config.task_type == "generate" and config.model_structure == "decoder":
         test_dataset.tokens_labels = None
+        test_dataset.truncate_pad_label = False
     if dist.is_initialized():
         dist.barrier()
     return DatasetDict({"train": train_dataset, "val": val_dataset, "test": test_dataset})
@@ -110,8 +109,10 @@ def load_model(tokenizer):
     start = time.time()
 
     # * define model class
-    if config.task_type == "generate":
+    if config.task_type == "generate" and config.model_structure == "decoder":
         ModelClass = AutoModelForCausalLM
+    elif config.task_type == "generate" and config.model_structure == "encoder-decoder":
+        ModelClass = AutoModelForSeq2SeqLM
     else:
         ModelClass = BertModel_multi_classify
     logger.info(f"local_rank {local_rank}: {str(ModelClass)}")
@@ -164,12 +165,18 @@ def load_model(tokenizer):
             return layer_names
 
         logger.info(str(list(set(get_specific_layer_names(model)))))
-
+        if config.task_type == "generate" and config.model_structure == "decoder":
+            task_type = TaskType.CAUSAL_LM
+        elif config.task_type == "generate" and config.model_structure == "encoder-decoder":
+            task_type = TaskType.SEQ_2_SEQ_LM
+        elif config.task_type == "classify" or config.task_type == "regress":
+            task_type = TaskType.SEQ_CLS
+        # TODO 分类任务还可能是 token 级别的, 应用 TaskType.TOKEN_CLS; 特征提取应用 TaskType.FEATURE_EXTRACTION
         peft_config = LoraConfig(
             # target_modules = 'all-linear',
             target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
             # target_modules="all",
-            task_type=TaskType.CAUSAL_LM if config.task_type == "generate" else TaskType.SEQ_CLS,
+            task_type=task_type,
             inference_mode=False,
             r=8,
             lora_alpha=32,
@@ -217,25 +224,27 @@ def compute_metrics(p: EvalPrediction):
     preds = p.predictions[0] if isinstance(p.predictions, tuple) else p.predictions
     match config.task_type:
         case "regress":
-            metric = evaluate.load("mse", cache_dir=config.save_dir)
-            preds = np.squeeze(preds)
-            result = metric.compute(predictions=preds, references=p.label_ids)
-        case "classify":
-            metric = evaluate.load("accuracy", cache_dir=config.save_dir)
-            preds = np.argmax(preds, axis=1)
-            result = metric.compute(predictions=preds, references=p.label_ids)
-        case "generate":
-            # import pdb
-
-            # pdb.set_trace()
-            labels = p.label_ids
-
+            # metric = evaluate.load("mse", cache_dir=config.save_dir)
+            # preds = np.squeeze(preds)
+            # result = metric.compute(predictions=preds, references=p.label_ids)
             pass
+        case "classify":
+            preds = np.argmax(preds, axis=1)
+            acc = accuracy_score(p.label_ids, preds)
+            result = {"accuracy": acc}
+        case "generate":
+            labels = p.label_ids
+            labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
+            preds = np.where(preds != -100, preds, tokenizer.pad_token_id)
+            decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
+            decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True)
+            result = dict(rouge(preds=decoded_preds, labels=decoded_labels, language="zh", rouge_keys=("rougeL")))
         case "multi_label":  # ? NLPTrainingConfig还未支持这种任务
-            metric = evaluate.load("f1", config_name="multilabel", cache_dir=config.save_dir)
-            preds = np.array([np.where(p > 0, 1, 0) for p in preds])  # convert logits to multi-hot encoding
-            # Micro F1 is commonly used in multi-label classification
-            result = metric.compute(predictions=preds, references=p.label_ids, average="micro")
+            # metric = evaluate.load("f1", config_name="multilabel", cache_dir=config.save_dir)
+            # preds = np.array([np.where(p > 0, 1, 0) for p in preds])  # convert logits to multi-hot encoding
+            # # Micro F1 is commonly used in multi-label classification
+            # result = metric.compute(predictions=preds, references=p.label_ids, average="micro")
+            pass
     if len(result) > 1:
         result["combined_score"] = np.mean(list(result.values())).item()
     return result
@@ -260,6 +269,7 @@ def main() -> None:
     dataset = load_dataset(tokenizer)
 
     # * Train
+    # TODO 等待 HF 实现专用于 CausalLM 的 Trainer
     TrainerClass = Seq2SeqTrainer if config.task_type == "generate" else Trainer
     trainer = TrainerClass(
         model=model,
@@ -311,34 +321,81 @@ if __name__ == "__main__":
 
     # parser = HfArgumentParser(TrainingArguments)
     # training_args = parser.parse_args_into_dataclasses()
+    # TODO 等待 HF 实现专用于 CausalLM 的 Trainer
     if config.task_type == "generate":
-        training_args = Seq2SeqTrainingArguments(
-            output_dir=config.save_dir,
-            learning_rate=config.opt_lr,
-            per_device_train_batch_size=config.train_batch_size,
-            per_device_eval_batch_size=config.infer_batch_size,
-            num_train_epochs=config.epochs,
-            weight_decay=config.opt_weight_decay,
-            eval_strategy="epoch",
-            save_strategy="epoch",
-            include_for_metrics=["loss"],  # acceptable values: "loss" "inputs"
-            save_total_limit=1,
-            load_best_model_at_end=False,  # TODO 当前 Seq2SeqTrainer 无法评估 encoder-only 模型, 故只能设为 False
-            # metric_for_best_model="eval_loss",  # TODO 默认值为 eval_loss, 然而 Seq2SeqTrainer 无法评估 encoder-only 模型, 也无法计算 loss
-            push_to_hub=False,
-            remove_unused_columns=False,
-            logging_steps=config.logging_steps,
-            optim="adamw_torch",
-            lr_scheduler_type="linear",
-            predict_with_generate=True,
-            generation_config=config.hf_generation_config_file,
-        )
+        if config.model_structure == "encoder-decoder":
+            training_args = Seq2SeqTrainingArguments(
+                seed=config.seed,
+                output_dir=config.save_dir,
+                learning_rate=config.opt_lr,
+                bf16=config.bf16,
+                fp16=config.fp16,
+                per_device_train_batch_size=config.train_batch_size,
+                per_device_eval_batch_size=config.infer_batch_size,
+                gradient_accumulation_steps=config.gradient_accumulation_steps,
+                num_train_epochs=config.epochs,
+                weight_decay=config.opt_weight_decay,
+                eval_strategy="epoch",
+                save_strategy="epoch",
+                include_for_metrics=["loss"],  # acceptable values: "loss" "inputs"
+                save_total_limit=1,
+                load_best_model_at_end=True,
+                metric_for_best_model=config.metric,
+                report_to=config.dashboard or "all",
+                gradient_checkpointing=config.activation_checkpointing,
+                ddp_timeout=config.ddp_timeout,
+                deepspeed=config.deepspeed_config,
+                push_to_hub=False,
+                remove_unused_columns=False,
+                logging_steps=config.logging_steps,
+                optim=config.opt_type,
+                lr_scheduler_type=config.sch_type,
+                warmup_ratio=config.sch_warmup_ratio_steps,
+                predict_with_generate=True,
+                generation_config=config.hf_generation_config_file,
+            )
+        else:  # config.model_structure=="decoder"
+            training_args = Seq2SeqTrainingArguments(
+                seed=config.seed,
+                output_dir=config.save_dir,
+                learning_rate=config.opt_lr,
+                bf16=config.bf16,
+                fp16=config.fp16,
+                per_device_train_batch_size=config.train_batch_size,
+                per_device_eval_batch_size=config.infer_batch_size,
+                gradient_accumulation_steps=config.gradient_accumulation_steps,
+                num_train_epochs=config.epochs,
+                weight_decay=config.opt_weight_decay,
+                eval_strategy="epoch",
+                save_strategy="epoch",
+                include_for_metrics=["loss"],  # acceptable values: "loss" "inputs"
+                save_total_limit=1,
+                # load_best_model_at_end=True,  # TODO 当前 Seq2SeqTrainer 无法评估 encoder-only 模型, 故只能设为 False
+                # metric_for_best_model=config.metric,  # TODO 默认值为 eval_loss, 然而 Seq2SeqTrainer 无法评估 encoder-only 模型, 也无法计算 loss
+                report_to=config.dashboard or "all",
+                gradient_checkpointing=config.activation_checkpointing,
+                ddp_timeout=config.ddp_timeout,
+                deepspeed=config.deepspeed_config,
+                push_to_hub=False,
+                remove_unused_columns=False,
+                logging_steps=config.logging_steps,
+                optim=config.opt_type,
+                lr_scheduler_type=config.sch_type,
+                warmup_ratio=config.sch_warmup_ratio_steps,
+                predict_with_generate=True,
+                generation_config=config.hf_generation_config_file,
+            )
     else:
+        # parallel_mode
         training_args = TrainingArguments(
+            seed=config.seed,
             output_dir=config.save_dir,
             learning_rate=config.opt_lr,
+            bf16=config.bf16,
+            fp16=config.fp16,
             per_device_train_batch_size=config.train_batch_size,
             per_device_eval_batch_size=config.infer_batch_size,
+            gradient_accumulation_steps=config.gradient_accumulation_steps,
             num_train_epochs=config.epochs,
             weight_decay=config.opt_weight_decay,
             eval_strategy="epoch",
@@ -346,16 +403,21 @@ if __name__ == "__main__":
             include_for_metrics=["loss"],  # acceptable values: "loss" "inputs"
             save_total_limit=1,
             load_best_model_at_end=True,
-            metric_for_best_model="eval_accuracy",
+            metric_for_best_model=config.metric,
+            report_to=config.dashboard or "all",
+            gradient_checkpointing=config.activation_checkpointing,
+            ddp_timeout=config.ddp_timeout,
+            deepspeed=config.deepspeed_config,
             push_to_hub=False,
             remove_unused_columns=False,
             logging_steps=config.logging_steps,
-            optim="adamw_torch",
-            lr_scheduler_type="linear",
+            optim=config.opt_type,
+            lr_scheduler_type=config.sch_type,
+            warmup_ratio=config.sch_warmup_ratio_steps,
         )
     if dist.is_initialized():
         local_rank, world_size = dist.get_rank(), dist.get_world_size()
     else:
         local_rank, world_size = 0, 1
-    # tokenizer = load_tokenizer()
+    tokenizer = load_tokenizer()
     main()

@@ -14,8 +14,12 @@ fi
 dashboard=None
 dataset_name=fool
 model_dir=None
+
 model_type="Qwen/Qwen2.5-0.5B-Instruct"
 model_structure="decoder"
+# model_type="google/mt5-small"
+# model_structure="encoder-decoder"
+
 task_type=generate
 
 text_type=ORI
@@ -23,7 +27,7 @@ model_name="baseline"
 part=all
 
 # 训练参数
-activation_checkpointing=False
+activation_checkpointing=True
 gradient_accumulation_steps=1
 
 seeds=(2)
@@ -31,10 +35,10 @@ epochs=3
 train_batch_size=4
 infer_batch_size=4
 max_length=None
-opt_type="AdamW"
+opt_type="adamw_torch"
 opt_lrs=("2e-5")
 opt_weight_decay=0.01
-sch_type=WarmupDecayLR
+sch_type="linear"
 sch_warmup_ratio_steps=0.1
 metric='rougeL'
 eval_every_half_epoch=False
@@ -45,6 +49,14 @@ if [ "$model_type" = "Qwen/Qwen2.5-0.5B-Instruct" ]; then
     torch_dtype=float32
     deepspeed_config_file=./configs/ds_zero2.hjson
     hf_generation_config_file="./configs/generate_config_qwen.json"
+    gradient_accumulation_steps=1
+elif [[ "$model_type" == google/*t5* ]]; then
+    # opt_lrs=("2e-6")
+    fp16=False
+    bf16=False
+    torch_dtype=float32
+    deepspeed_config_file=./configs/ds_zero2.hjson
+    hf_generation_config_file="./configs/generate_config_t5.json"
     gradient_accumulation_steps=1
 elif [ "$model_type" = "XXX" ]; then
     exit 1
