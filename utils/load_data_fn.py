@@ -25,6 +25,8 @@ def load_data_fn4generate(data_file_path: Path | str, model_type: str, tokenizer
     CLS = special_tokens_map["cls_token"] if "cls_token" in special_tokens_map.keys() else None
     config = kwargs["config_load_data"]
     text_type = TextType[config.text_type]
+    model_type = config.model_type
+    model_structure = config.model_structure
 
     # t2s_ratio = re.search(r"mix_t2s_ratio=([\d\.]+)", model_name)
     # if t2s_ratio:
@@ -54,18 +56,26 @@ def load_data_fn4generate(data_file_path: Path | str, model_type: str, tokenizer
         # input
         match text_type:
             case TextType.ORI:
-                messages = [
-                    {"role": "system", "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant."},
-                    {"role": "user", "content": f'"{row["inputs"]}"下一句是?'},
-                ]
-                input_str = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, continue_final_message=False)
+                if tokenizer.chat_template is not None:
+                    messages = [
+                        {"role": "system", "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant."},  # 也许 system 会不同
+                        {"role": "user", "content": f'"{row["inputs"]}"下一句是?'},
+                    ]
+                    input_str = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, continue_final_message=False)
+                else:
+                    input_str = f'"{row["inputs"]}"下一句是?'
                 a_sample = PairedText(input_str)
         # label
         match text_type:
             case TextType.ORI:
                 label_str = row["outputs"]
                 if split == Split.TRAINING:
-                    a_label = PairedText(label_str + EOS)
+                    if model_structure == "decoder":
+                        # 必须手动处理 EOS, 因为对 encoder 模型的 labels 进行 tokenize 时, 设置了 add_special_tokens=False
+                        a_label = PairedText(label_str + EOS)
+                    elif model_structure == "encoder-decoder":
+                        # 好像一般 encoder-decoder 模型的 tokenizer 会自动添加 EOS, 至少 Flan-t5 的 tokenizer 会自动加
+                        a_label = PairedText(label_str)
                 else:
                     a_label = label_str
         inputs.append(a_sample)
@@ -150,6 +160,8 @@ def load_data_fn4generate_hf(data_file_path: Path | str, model_type: str, tokeni
     CLS = special_tokens_map["cls_token"] if "cls_token" in special_tokens_map.keys() else None
     config = kwargs["config_load_data"]
     text_type = TextType[config.text_type]
+    model_type = config.model_type
+    model_structure = config.model_structure
 
     # t2s_ratio = re.search(r"mix_t2s_ratio=([\d\.]+)", model_name)
     # if t2s_ratio:
@@ -179,17 +191,27 @@ def load_data_fn4generate_hf(data_file_path: Path | str, model_type: str, tokeni
         # input
         match text_type:
             case TextType.ORI:
-                messages = [
-                    {"role": "system", "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant."},
-                    {"role": "user", "content": f'"{row["inputs"]}"下一句是?'},
-                ]
-                input_str = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, continue_final_message=False)
+                if tokenizer.chat_template is not None:
+                    messages = [
+                        {"role": "system", "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant."},  # 也许 system 会不同
+                        {"role": "user", "content": f'"{row["inputs"]}"下一句是?'},
+                    ]
+                    input_str = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, continue_final_message=False)
+                else:
+                    input_str = f'"{row["inputs"]}"下一句是?'
+                    # input_str = f'What is the next sentence of "{translation_dict[row["inputs"]]}"?'
                 a_sample = PairedText(input_str)
         # label
         match text_type:
             case TextType.ORI:
                 label_str = row["outputs"]
-                a_label = PairedText(label_str + EOS)
+                # label_str = translation_dict[row["outputs"]]
+                if model_structure == "decoder":
+                    # 必须手动处理 EOS, 因为对 encoder 模型的 labels 进行 tokenize 时, 设置了 add_special_tokens=False
+                    a_label = PairedText(label_str + EOS)
+                elif model_structure == "encoder-decoder":
+                    # 好像一般 encoder-decoder 模型的 tokenizer 会自动添加 EOS, 至少 Flan-t5 的 tokenizer 会自动加
+                    a_label = PairedText(label_str)
         inputs.append(a_sample)
         labels.append(a_label)
 
@@ -200,3 +222,31 @@ def load_data_fn4generate_hf(data_file_path: Path | str, model_type: str, tokeni
     print(labels[0])
     print("=" * 60)
     return inputs, labels
+
+
+# translation_dict = {
+#     "赵客缦胡缨": "The warriors of Zhao wear loose barbarian tassels",
+#     "吴钩霜雪明": "Their swords shine like frost and snow",
+#     "银鞍照白马": "Silver saddles gleam on white horses",
+#     "飒沓如流星": "They race like meteors across the sky",
+#     "十步杀一人": "In ten steps they slay one man",
+#     "千里不留行": "And travel a thousand miles without a trace",
+#     "事了拂衣去": "When their task is done they brush off their sleeves and leave",
+#     "深藏身与名": "Hiding both their identity and their name",
+#     "闲过信陵饮": "Leisurely they drink at Lord Xinlings feast",
+#     "脱剑膝前横": "Their swords laid across their knees",
+#     "将炙啖朱亥": "They offer roasted meat to Zhu Hai",
+#     "持觞劝侯嬴": "And raise their cups to urge Hou Ying",
+#     "三杯吐然诺": "After three cups they make solemn promises",
+#     "五岳倒为轻": "Even the Five Sacred Peaks seem light in comparison",
+#     "眼花耳热后": "With blurred vision and heated ears",
+#     "意气素霓生": "Their spirit rises like a rainbow",
+#     "救赵挥金槌": "To save Zhao they wield golden hammers",
+#     "邯郸先震惊": "And Handan trembles at their might",
+#     "千秋二壮士": "For a thousand autumns two heroic men",
+#     "烜赫大梁城": "Have been illustrious in Daliang City",
+#     "纵死侠骨香": "Even in death their heroic bones exude fragrance",
+#     "不惭世上英": "And they are not ashamed to be called heroes of the world",
+#     "谁能书阁下": "Who can write in the pavilion below",
+#     "白首太玄经": "The profound classic until old age",
+# }
