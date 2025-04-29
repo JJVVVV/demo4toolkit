@@ -8,7 +8,12 @@ from pathlib import Path
 import pandas as pd
 from toolkit.enums import Split
 from toolkit.nlp import NLPTrainingConfig
-from toolkit.nlp.data import ClassificationLabel, FinelyControlledText, PairedText, RegressionLabel
+from toolkit.nlp.data import (
+    ClassificationLabel,
+    FinelyControlledText,
+    PairedText,
+    RegressionLabel,
+)
 from transformers import PreTrainedTokenizer
 
 
@@ -16,7 +21,7 @@ class TextType(Enum):
     ORI = auto()
 
 
-def load_data_fn4generate(data_file_path: Path | str, model_type: str, tokenizer: PreTrainedTokenizer, split: Split, **kwargs):
+def load_data_fn4generate(data_file_path: Path | str, tokenizer: PreTrainedTokenizer, split: Split, **kwargs):
     special_tokens_map = tokenizer.special_tokens_map
     BOS = special_tokens_map["bos_token"] if "bos_token" in special_tokens_map.keys() else None
     EOS = special_tokens_map["eos_token"] if "eos_token" in special_tokens_map.keys() else None
@@ -90,7 +95,7 @@ def load_data_fn4generate(data_file_path: Path | str, model_type: str, tokenizer
     return inputs, labels
 
 
-def load_data_fn4classify(data_file_path: Path | str, model_type: str, tokenizer: PreTrainedTokenizer, split: Split, **kwargs):
+def load_data_fn4classify(data_file_path: Path | str, tokenizer: PreTrainedTokenizer, split: Split, **kwargs):
     special_tokens_map = tokenizer.special_tokens_map
     BOS = special_tokens_map["bos_token"] if "bos_token" in special_tokens_map.keys() else None
     EOS = special_tokens_map["eos_token"] if "eos_token" in special_tokens_map.keys() else None
@@ -148,7 +153,7 @@ def load_data_fn4classify(data_file_path: Path | str, model_type: str, tokenizer
     return inputs, labels
 
 
-def load_data_fn4generate_hf(data_file_path: Path | str, model_type: str, tokenizer: PreTrainedTokenizer, split: Split, **kwargs):
+def load_data_fn4generate_hf(data_file_path: Path | str, tokenizer: PreTrainedTokenizer, split: Split, **kwargs):
     """
     HF trainer 要求 labels 只能是 tensor
     """
