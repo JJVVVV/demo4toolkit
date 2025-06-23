@@ -10,6 +10,7 @@ from fire import Fire
 from toolkit.enums import Split
 from toolkit.logger import getLogger
 from toolkit.nlp import LazyTextDataset, NLPTrainingConfig, TextDataset
+from toolkit.nlp.data import show_model_inputs_case
 from toolkit.training.initializer import initialize
 from toolkit.training.trainer import Trainer
 from transformers import CONFIG_MAPPING, AutoConfig, AutoModelForCausalLM, AutoTokenizer, GenerationConfig, PreTrainedTokenizer
@@ -45,6 +46,7 @@ def load_dataset(tokenizer: PreTrainedTokenizer) -> tuple:
         configs=config,
         config_load_data=config,
     )
+    show_model_inputs_case(train_dataset, tokenizer, is_decode_label=config.task_type == "generate")
     # # 测试 LazyTextDataset
     # train_dataset = LazyTextDataset.from_file(
     #     tokenizer=tokenizer,
