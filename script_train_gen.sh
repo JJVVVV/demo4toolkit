@@ -43,7 +43,7 @@ if [ "$model_type" = "Qwen/Qwen2.5-0.5B-Instruct" ]; then
     fp16=False
     bf16=False
     torch_dtype=float32
-    deepspeed_config_file=./configs/ds_zero2.hjson
+    deepspeed_config_file=./configs/ds_zero2_offload.hjson
     hf_generation_config_file="./configs/generate_config_qwen.json"
     gradient_accumulation_steps=1
 elif [ "$model_type" = "XXX" ]; then
@@ -55,6 +55,7 @@ cache_dataset=False
 # 数据集文件
 if [ "$text_type" = "ORI" ]; then
     train_file_path="data/fool/train/train_generate.json"
+    # train_file_path="data/fool/train/train_generate.txt"
     val_file_path="data/fool/dev/dev_generate.json"
     test_file_path=None
 elif [ "$text_type" = "XXX" ]; then

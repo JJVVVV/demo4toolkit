@@ -51,7 +51,7 @@ if [ "$model_type" = "bert-base-chinese" ]; then
     bf16=False
     torch_dtype=auto
     deepspeed_config_file=./configs/ds_zero2.hjson
-    hf_generation_config_file="./configs/generate_config.json"
+    # hf_generation_config_file="./configs/generate_config.json"
     gradient_accumulation_steps=1
 elif [ "$model_type" = "XXX" ]; then
     exit 1
@@ -62,6 +62,7 @@ cache_dataset=False
 # 数据集文件
 if [ "$text_type" = "ORI" ]; then
     train_file_path="data/fool/train/train_classify.json"
+    # train_file_path="data/fool/train/train_classify.txt"
     val_file_path="data/fool/dev/dev_classify.json"
     test_file_path=None
 elif [ "$text_type" = "XXX" ]; then
@@ -180,7 +181,7 @@ do
             --part $part \
             --torch_dtype $torch_dtype \
             --ddp_timeout 30000 \
-            --hf_generation_config_file $hf_generation_config_file \
+            # --hf_generation_config_file $hf_generation_config_file \
             # > $log_file 2>&1 &
 
         # ###################################训练程序#########################################

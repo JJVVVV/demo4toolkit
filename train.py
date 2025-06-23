@@ -9,7 +9,7 @@ import torch.distributed as dist
 from fire import Fire
 from toolkit.enums import Split
 from toolkit.logger import getLogger
-from toolkit.nlp import NLPTrainingConfig, TextDataset
+from toolkit.nlp import LazyTextDataset, NLPTrainingConfig, TextDataset
 from toolkit.training.initializer import initialize
 from toolkit.training.trainer import Trainer
 from transformers import CONFIG_MAPPING, AutoConfig, AutoModelForCausalLM, AutoTokenizer, GenerationConfig, PreTrainedTokenizer
@@ -18,6 +18,7 @@ from models.classification_models import BertModel_multi_classify, DoubleBERT, D
 from models.generation_models import LlamaForCausalLM_baseline
 from utils.evaluators import Evaluator4Classify, Evaluator4Generate
 from utils.load_data_fn import load_data_fn4classify, load_data_fn4generate
+from utils.parse_item_fn import parse_item_fn4classify, parse_item_fn4generate
 
 IGNORE_INDEX = -100
 DEFAULT_PAD_TOKEN = "[PAD]"
@@ -44,6 +45,14 @@ def load_dataset(tokenizer: PreTrainedTokenizer) -> tuple:
         configs=config,
         config_load_data=config,
     )
+    # # 测试 LazyTextDataset
+    # train_dataset = LazyTextDataset.from_file(
+    #     tokenizer=tokenizer,
+    #     parse_item_fn=parse_item_fn4generate if config.task_type == "generate" else parse_item_fn4classify,
+    #     split="TRAINING",
+    #     configs=config,
+    #     config_load_data=config,
+    # )
     val_dataset = TextDataset.from_file(
         tokenizer=tokenizer,
         load_data_fn=load_data_fn4generate if config.task_type == "generate" else load_data_fn4classify,

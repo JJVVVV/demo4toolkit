@@ -50,7 +50,7 @@ if [ "$model_type" = "bert-base-chinese" ]; then
     bf16=False
     torch_dtype=auto
     deepspeed_config_file=./configs/ds_zero2.hjson
-    hf_generation_config_file="./configs/generate_config.json"
+    # hf_generation_config_file="./configs/generate_config.json"
     gradient_accumulation_steps=1
 elif [ "$model_type" = "XXX" ]; then
     exit 1
@@ -179,7 +179,7 @@ do
             --part $part \
             --torch_dtype $torch_dtype \
             --ddp_timeout 30000 \
-            --hf_generation_config_file $hf_generation_config_file \
+            # --hf_generation_config_file $hf_generation_config_file \
             # > $log_file 2>&1 &
 
         # ###################################训练程序#########################################
