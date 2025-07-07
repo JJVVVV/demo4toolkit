@@ -30,9 +30,18 @@ from transformers import (
     TrainingArguments,
 )
 
-from models.classification_models import BertModel_multi_classify, DoubleBERT, DoubleRoberta, RobertaModel_multi_classify
+from models.classification_models import (
+    BertModel_multi_classify,
+    DoubleBERT,
+    DoubleRoberta,
+    RobertaModel_multi_classify,
+)
 from utils.evaluators import Evaluator4Classify, Evaluator4Generate
-from utils.load_data_fn import load_data_fn4classify, load_data_fn4generate, load_data_fn4generate_hf
+from utils.load_data_fn import (
+    load_data_fn4classify,
+    load_data_fn4generate,
+    load_data_fn4generate_hf,
+)
 
 IGNORE_INDEX = -100
 DEFAULT_PAD_TOKEN = "[PAD]"
@@ -64,42 +73,66 @@ def load_dataset(tokenizer: PreTrainedTokenizer) -> tuple:
     # * Load training data, development data and test data
     train_dataset = TextDataset.from_file(
         tokenizer=tokenizer,
-        load_data_fn=load_data_fn4generate_hf if config.task_type == "generate" else load_data_fn4classify,
+        load_data_fn=(
+            load_data_fn4generate_hf
+            if config.task_type == "generate"
+            else load_data_fn4classify
+        ),
         split="TRAINING",
         configs=config,
         config_load_data=config,
     )
     val_dataset = TextDataset.from_file(
         tokenizer=tokenizer,
-        load_data_fn=load_data_fn4generate_hf if config.task_type == "generate" else load_data_fn4classify,
+        load_data_fn=(
+            load_data_fn4generate_hf
+            if config.task_type == "generate"
+            else load_data_fn4classify
+        ),
         split="VALIDATION",
         configs=config,
         config_load_data=config,
     )
     # TODO 因为 HF 目前没有能用于在训练中评估 encoder-only 模型的 trainer, 所以暂时使用 Seq2SeqTrainer, 而该 Trainer 无法实现指标计算, 必须将 labels 置为 None 才不会报错.
-    if val_dataset is not None and config.task_type == "generate" and config.model_structure == "decoder":
+    if (
+        val_dataset is not None
+        and config.task_type == "generate"
+        and config.model_structure == "decoder"
+    ):
         val_dataset.tokens_labels = None
         val_dataset.truncate_pad_label = False
     test_dataset = TextDataset.from_file(
         tokenizer=tokenizer,
-        load_data_fn=load_data_fn4generate_hf if config.task_type == "generate" else load_data_fn4classify,
+        load_data_fn=(
+            load_data_fn4generate_hf
+            if config.task_type == "generate"
+            else load_data_fn4classify
+        ),
         split="TEST",
         configs=config,
         config_load_data=config,
     )
     # TODO 因为 HF 目前没有能用于在训练中评估 encoder-only 模型的 trainer, 所以暂时使用 Seq2SeqTrainer, 而该 Trainer 无法实现指标计算, 必须将 labels 置为 None 才不会报错.
-    if test_dataset is not None and config.task_type == "generate" and config.model_structure == "decoder":
+    if (
+        test_dataset is not None
+        and config.task_type == "generate"
+        and config.model_structure == "decoder"
+    ):
         test_dataset.tokens_labels = None
         test_dataset.truncate_pad_label = False
     if dist.is_initialized():
         dist.barrier()
-    return DatasetDict({"train": train_dataset, "val": val_dataset, "test": test_dataset})
+    return DatasetDict(
+        {"train": train_dataset, "val": val_dataset, "test": test_dataset}
+    )
 
 
 def load_tokenizer() -> PreTrainedTokenizer:
     # * Load tokenizer
     tokenizer_kwargs = {}
-    tokenizer = AutoTokenizer.from_pretrained(config.model_dir, **tokenizer_kwargs, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(
+        config.model_dir, **tokenizer_kwargs, trust_remote_code=True
+    )
     if dist.is_initialized():
         dist.barrier()
     return tokenizer
@@ -118,22 +151,39 @@ def load_model(tokenizer):
     logger.info(f"local_rank {local_rank}: {str(ModelClass)}")
 
     # * Determine the model dir
-    pretrained_model_dir = config.model_dir if config.model_dir is not None else config.model_type
+    pretrained_model_dir = (
+        config.model_dir if config.model_dir is not None else config.model_type
+    )
     logger.debug(f"local_rank {local_rank}: load model from {pretrained_model_dir}")
 
     # * Load model
-    if ModelClass in (BertModel_multi_classify, RobertaModel_multi_classify, DoubleRoberta, DoubleBERT):
-        model = ModelClass.from_pretrained(pretrained_model_dir, torch_dtype=config.torch_dtype, num_classification=config.num_classification)
+    if ModelClass in (
+        BertModel_multi_classify,
+        RobertaModel_multi_classify,
+        DoubleRoberta,
+        DoubleBERT,
+    ):
+        model = ModelClass.from_pretrained(
+            pretrained_model_dir,
+            torch_dtype=config.torch_dtype,
+            num_classification=config.num_classification,
+        )
     else:
-        model = ModelClass.from_pretrained(pretrained_model_dir, torch_dtype=config.torch_dtype)
+        model = ModelClass.from_pretrained(
+            pretrained_model_dir, torch_dtype=config.torch_dtype
+        )
 
     # * add pad token
     # print(tokenizer.pad_token, tokenizer.eos_token)
     if tokenizer.pad_token is None:
         if tokenizer.eos_token is not None:
-            logger.debug(f"Setting pad token to eos token: {tokenizer.eos_token}, {tokenizer.eos_token_id}")
+            logger.debug(
+                f"Setting pad token to eos token: {tokenizer.eos_token}, {tokenizer.eos_token_id}"
+            )
             tokenizer.pad_token = tokenizer.eos_token
-            logger.debug(f"The pad token and pad token id: {tokenizer.pad_token}, {tokenizer.pad_token_id}")
+            logger.debug(
+                f"The pad token and pad token id: {tokenizer.pad_token}, {tokenizer.pad_token_id}"
+            )
         else:
             logger.debug(f"len(tokenizer): {len(tokenizer)}")
             logger.debug(f"Adding pad token {DEFAULT_PAD_TOKEN} ...")
@@ -141,8 +191,12 @@ def load_model(tokenizer):
             logger.debug(f"len(tokenizer): {len(tokenizer)}")
             embedding_size = model.get_input_embeddings().weight.shape[0]
             if len(tokenizer) != embedding_size:
-                logger.debug(f"len(tokenizer)!=embedding_size: {len(tokenizer)}!={embedding_size}")
-                logger.debug("resize the embedding size by the size of the tokenizer ...")
+                logger.debug(
+                    f"len(tokenizer)!=embedding_size: {len(tokenizer)}!={embedding_size}"
+                )
+                logger.debug(
+                    "resize the embedding size by the size of the tokenizer ..."
+                )
                 model.resize_token_embeddings(len(tokenizer))
 
     # * PEFT
@@ -157,7 +211,10 @@ def load_model(tokenizer):
             # Recursively visit all modules and submodules
             for name, module in model.named_modules():
                 # Check if the module is an instance of the specified layers
-                if isinstance(module, (torch.nn.Linear, torch.nn.Embedding, torch.nn.Conv2d, Conv1D)):
+                if isinstance(
+                    module,
+                    (torch.nn.Linear, torch.nn.Embedding, torch.nn.Conv2d, Conv1D),
+                ):
                     # model name parsing
                     if x := ".".join(name.split(".")[4:]).split(".")[0]:
                         layer_names.append(x)
@@ -167,14 +224,25 @@ def load_model(tokenizer):
         logger.info(str(list(set(get_specific_layer_names(model)))))
         if config.task_type == "generate" and config.model_structure == "decoder":
             task_type = TaskType.CAUSAL_LM
-        elif config.task_type == "generate" and config.model_structure == "encoder-decoder":
+        elif (
+            config.task_type == "generate"
+            and config.model_structure == "encoder-decoder"
+        ):
             task_type = TaskType.SEQ_2_SEQ_LM
         elif config.task_type == "classify" or config.task_type == "regress":
             task_type = TaskType.SEQ_CLS
         # TODO 分类任务还可能是 token 级别的, 应用 TaskType.TOKEN_CLS; 特征提取应用 TaskType.FEATURE_EXTRACTION
         peft_config = LoraConfig(
             # target_modules = 'all-linear',
-            target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+            target_modules=[
+                "q_proj",
+                "k_proj",
+                "v_proj",
+                "o_proj",
+                "gate_proj",
+                "up_proj",
+                "down_proj",
+            ],
             # target_modules="all",
             task_type=task_type,
             inference_mode=False,
@@ -238,7 +306,14 @@ def compute_metrics(p: EvalPrediction):
             preds = np.where(preds != -100, preds, tokenizer.pad_token_id)
             decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
             decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True)
-            result = dict(rouge(preds=decoded_preds, labels=decoded_labels, language="zh", rouge_keys=("rougeL")))
+            result = dict(
+                rouge(
+                    preds=decoded_preds,
+                    labels=decoded_labels,
+                    language="zh",
+                    rouge_keys=("rougeL"),
+                )
+            )
         case "multi_label":  # ? NLPTrainingConfig还未支持这种任务
             # metric = evaluate.load("f1", config_name="multilabel", cache_dir=config.save_dir)
             # preds = np.array([np.where(p > 0, 1, 0) for p in preds])  # convert logits to multi-hot encoding
@@ -289,7 +364,11 @@ if __name__ == "__main__":
 
     # * search model
     if config.model_dir is None:
-        candidate_dirs = [Path("/data/jjwang/pretrained/"), Path("/public/home/hongy/pretrained_models/")]
+        candidate_dirs = [
+            Path("/data/jjwang/pretrained/"),
+            Path("/public/home/hongy/pretrained_models/"),
+            Path("/home/wangjunjie08/pretrained_models"),
+        ]
         for d in candidate_dirs:
             if (d / config.model_type).exists():
                 config.model_dir = d / config.model_type
