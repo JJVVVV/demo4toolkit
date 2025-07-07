@@ -246,7 +246,7 @@ if __name__ == "__main__":
 
     # * search model
     if config.model_dir is None:
-        candidate_dirs = [Path("/data/jjwang/pretrained/"), Path("/public/home/hongy/pretrained_models/")]
+        candidate_dirs = [Path("/data/jjwang/pretrained/"), Path("/public/home/hongy/pretrained_models/", Path("/home/wangjunjie08/pretrained_models"))]
         for d in candidate_dirs:
             if (d / config.model_type).exists():
                 config.model_dir = d / config.model_type
